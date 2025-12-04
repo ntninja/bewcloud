@@ -4,6 +4,24 @@ import '@std/dotenv/load';
 import { escapeHtml } from '/lib/utils/misc.ts';
 import { AppConfig } from '/lib/config.ts';
 
+/**
+ * Simple JSON object deep merger
+ *
+ * Source: https://stackoverflow.com/a/58618599
+ */
+const deepMerge = (objs) =>
+  objs.reduce((acc, obj) =>
+    Object.keys(obj).reduce((innerAcc, key) => ({
+      ...innerAcc,
+      [key]:
+        key in acc
+          ? typeof acc[key] === 'object' && acc[key] !== null && typeof obj[key] === 'object' && obj[key] !== null
+            ? deepMerge([acc[key], obj[key]])
+            : obj[key]
+          : obj[key]
+    }), acc),
+  {});
+
 const SMTP_USERNAME = Deno.env.get('SMTP_USERNAME') || '';
 const SMTP_PASSWORD = Deno.env.get('SMTP_PASSWORD') || '';
 
@@ -11,19 +29,18 @@ export class EmailModel {
   private static async send(to: string, subject: string, htmlBody: string, textBody: string) {
     const emailConfig = await AppConfig.getEmailConfig();
 
-    if (!emailConfig.from || !emailConfig.host || !emailConfig.port) {
-      throw new Error('config.email.from, config.email.host, or config.email.port is not set');
+    if (!emailConfig.from || !emailConfig.transportConfig.host || !emailConfig.transportConfig.port) {
+      throw new Error('config.email.from, config.email.transportConfig.host, or config.email.transportConfig.port is not set');
     }
 
-    const transporterConfig = {
-      host: emailConfig.host,
-      port: emailConfig.port,
-      secure: Number(emailConfig.port) === 465,
+    const transporterConfig = deepMerge([{
+      secure: Number(emailConfig.transportConfig.port) === 465,
+    }, ((SMTP_USERNAME || SMTP_PASSWORD) ? {
       auth: {
         user: SMTP_USERNAME,
         pass: SMTP_PASSWORD,
       },
-    };
+    } : {}), emailConfig.transportConfig]);
 
     const transporter = nodemailer.createTransport(transporterConfig);
 
